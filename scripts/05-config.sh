@@ -14,6 +14,13 @@ pipeline:
   maas:
     enabled: false
 
+  page_loader:
+    max_tokens: 4096
+    temperature: 0.0
+    top_p: 0.00001
+    top_k: 1
+    repetition_penalty: 1.1
+
   ocr_api:
     api_host: 127.0.0.1
     api_port: ${VLLM_PORT}
