@@ -21,10 +21,17 @@ cd "${PADDLEX_ROOT}"
 log "Installing PaddleX in editable mode..."
 run python -m pip install --no-build-isolation -e ".[base]"
 
-log "Installing PaddlePaddle GPU ${PADDLE_VERSION} (CUDA 12.6 wheel index)..."
+#log "Installing PaddlePaddle GPU ${PADDLE_VERSION} (CUDA 12.6 wheel index)..."
+#run python -m pip install \
+#    "paddlepaddle-gpu==${PADDLE_VERSION}" \
+#    -i "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+
+log "Installing PaddlePaddle CPU ${PADDLE_VERSION} -- For GPU: uncmoment please..."
 run python -m pip install \
-    "paddlepaddle-gpu==${PADDLE_VERSION}" \
-    -i "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+    "paddlepaddle==${PADDLE_VERSION}" \
+    -i "https://www.paddlepaddle.org.cn/packages/stable/cpu/"
+
+
 
 if python -c 'import ppdet' >/dev/null 2>&1; then
     ok "PaddleDetection is already importable."
