@@ -12,11 +12,11 @@ run python -m pip install "glmocr[selfhosted]==${GLMOCR_VERSION}"
 
 # The original bootstrap installed these without version constraints. Keep the
 # configured values explicit so the environment is inspectable and reproducible.
-log "Installing Transformers ${TRANSFORMERS_VERSION}..."
-run python -m pip install "transformers==${TRANSFORMERS_VERSION}"
+log "Installing Transformers..."
+run python -m pip install "transformers"
 
-log "Installing vLLM ${VLLM_VERSION}..."
-run python -m pip install "vllm==${VLLM_VERSION}"
+log "Installing vLLM..."
+run python -m pip install "vllm"
 
 python - <<'PY'
 import glmocr
