@@ -30,16 +30,20 @@ USAGE
 }
 
 run_stage() {
+    local script
     case "$1" in
-        system)  "${ROOT_DIR}/scripts/01-system.sh" ;;
-        venv)    "${ROOT_DIR}/scripts/02-venv.sh" ;;
-        paddlex) "${ROOT_DIR}/scripts/03-paddlex.sh" ;;
-        glmocr)  "${ROOT_DIR}/scripts/04-glmocr.sh" ;;
-        config)  "${ROOT_DIR}/scripts/05-config.sh" ;;
-        vllm)    "${ROOT_DIR}/scripts/07-vllm.sh" ;;
-        sanity)  "${ROOT_DIR}/scripts/06-sanity.sh" ;;
+        system)  script="${ROOT_DIR}/scripts/01-system.sh" ;;
+        venv)    script="${ROOT_DIR}/scripts/02-venv.sh" ;;
+        paddlex) script="${ROOT_DIR}/scripts/03-paddlex.sh" ;;
+        glmocr)  script="${ROOT_DIR}/scripts/04-glmocr.sh" ;;
+        config)  script="${ROOT_DIR}/scripts/05-config.sh" ;;
+        vllm)    script="${ROOT_DIR}/scripts/07-vllm.sh" ;;
+        sanity)  script="${ROOT_DIR}/scripts/06-sanity.sh" ;;
         *) fail "Unknown stage: $1" ;;
     esac
+
+    chmod +x "${script}"
+    "${script}"
 }
 
 run_all() {
