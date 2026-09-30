@@ -9,7 +9,7 @@ from paddlex_layout_detector import (
 )
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_CONFIG = ROOT / "our_glm.yaml"
 DEFAULT_IMAGE = (
