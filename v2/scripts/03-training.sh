@@ -36,7 +36,8 @@ if [[ ! -x "${TRAINING_VENV}/bin/python" ]]; then
 
     uv venv \
         --python python3.11 \
-        "${TRAINING_VENV}"
+        "${TRAINING_VENV}" \
+        --seed
 else
     echo "[INFO] Reusing virtual environment: ${TRAINING_VENV}"
 fi
