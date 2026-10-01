@@ -576,53 +576,25 @@ def build_coco(
 def main():
     project_root = Path(__file__).resolve().parent.parent
 
-    default_input = project_root / "label_result.json"
-    default_images_root = (
-        project_root
-        / "page1-test1"
-        / "images"
-    )
-    default_output = (
-        project_root
-        / "output"
-        / "page1-test1"
-    )
-
     parser = argparse.ArgumentParser(
         description=(
-            "Convert a Label Studio native JSON export into a "
+            "Convert a Label Studio dataset into a "
             "PP-DocLayoutV3 PaddleX COCO dataset."
         )
     )
 
     parser.add_argument(
-        "--input",
+        "--dataset",
         type=Path,
-        default=default_input,
-        help=(
-            "Label Studio native JSON export. "
-            f"Default: {default_input}"
-        ),
-    )
-
-    parser.add_argument(
-        "--images-root",
-        type=Path,
-        default=default_images_root,
-        help=(
-            "Directory containing Label Studio images. "
-            f"Default: {default_images_root}"
-        ),
+        default=project_root / "page1-test1",
+        help="Source dataset directory.",
     )
 
     parser.add_argument(
         "--output",
         type=Path,
-        default=default_output,
-        help=(
-            "PP-DocLayoutV3 dataset output. "
-            f"Default: {default_output}"
-        ),
+        default=project_root / "output" / "page1-test1",
+        help="Output PP-DocLayoutV3 dataset directory.",
     )
 
     parser.add_argument(
@@ -636,57 +608,72 @@ def main():
         "--seed",
         type=int,
         default=42,
-        help="Random seed used for the train/validation split. Default: 42",
+        help="Random seed. Default: 42",
     )
 
     parser.add_argument(
         "--smoke-test",
         action="store_true",
         help=(
-            "Allow a one-page dataset and use it for both train and val. "
-            "DO NOT use for real evaluation."
+            "Allow a one-page dataset and use it for both "
+            "train and val. DO NOT use for real evaluation."
         ),
     )
 
     args = parser.parse_args()
 
     # --------------------------------------------------------
-    # Resolve relative paths against the project root.
+    # Resolve paths
     # --------------------------------------------------------
 
-    if not args.input.is_absolute():
-        args.input = project_root / args.input
-
-    if not args.images_root.is_absolute():
-        args.images_root = project_root / args.images_root
+    if not args.dataset.is_absolute():
+        args.dataset = project_root / args.dataset
 
     if not args.output.is_absolute():
         args.output = project_root / args.output
 
-    args.input = args.input.resolve()
-    args.images_root = args.images_root.resolve()
+    args.dataset = args.dataset.resolve()
     args.output = args.output.resolve()
+
+    if not args.dataset.is_dir():
+        raise FileNotFoundError(
+            f"Dataset directory does not exist: {args.dataset}"
+        )
+
+    # --------------------------------------------------------
+    # Dataset structure
+    # --------------------------------------------------------
+
+    input_path = args.dataset / "validation_annotation.json"
+    images_root = args.dataset / "images"
+
+    if not input_path.is_file():
+        raise FileNotFoundError(
+            f"Label Studio annotation file does not exist:\n"
+            f"  {input_path}"
+        )
+
+    if not images_root.is_dir():
+        raise FileNotFoundError(
+            f"Images directory does not exist:\n"
+            f"  {images_root}"
+        )
 
     if not 0.0 < args.val_ratio < 1.0:
         raise ValueError(
             "--val-ratio must be between 0 and 1."
         )
 
-    if not args.input.is_file():
-        raise FileNotFoundError(
-            f"Label Studio JSON does not exist: {args.input}"
-        )
-
-    if not args.images_root.is_dir():
-        raise FileNotFoundError(
-            f"Images directory does not exist: {args.images_root}"
-        )
+    print(f"Dataset:      {args.dataset}")
+    print(f"Annotations:  {input_path}")
+    print(f"Images:       {images_root}")
+    print(f"Output:       {args.output}")
 
     # --------------------------------------------------------
     # Load Label Studio export
     # --------------------------------------------------------
 
-    data = load_json(args.input)
+    data = load_json(input_path)
 
     if not isinstance(data, list):
         raise ValueError(
@@ -771,14 +758,14 @@ def main():
 
     train_coco = build_coco(
         train_tasks,
-        args.images_root,
+        images_root,
         output_images,
         output_masks,
     )
 
     val_coco = build_coco(
         val_tasks,
-        args.images_root,
+        images_root,
         output_images,
         output_masks,
     )
@@ -787,13 +774,8 @@ def main():
     # Save
     # --------------------------------------------------------
 
-    train_path = (
-        output_annotations / "instance_train.json"
-    )
-
-    val_path = (
-        output_annotations / "instance_val.json"
-    )
+    train_path = output_annotations / "instance_train.json"
+    val_path = output_annotations / "instance_val.json"
 
     with train_path.open("w", encoding="utf-8") as f:
         json.dump(
@@ -839,7 +821,6 @@ def main():
         f"{len(val_coco['annotations'])}"
     )
     print(f"  JSON:        {val_path}")
-
 
 if __name__ == "__main__":
     main()

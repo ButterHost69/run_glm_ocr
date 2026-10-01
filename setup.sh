@@ -5,7 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/lib/common.sh"
 
-# Installation/bootstrap stages.
 STAGES=(system venv paddlex glmocr config sanity)
 
 usage() {
@@ -33,7 +32,7 @@ Notes:
   - 09, 10 and 11 are runtime/data stages and are not included in "all".
   - 09 requires the GLM-OCR vLLM server to be running.
   - 10 expects a PaddleX layout dataset.
-  - 11 converts Label Studio native JSON into PaddleX COCO format.
+  - 11 converts a Label Studio dataset into PaddleX COCO format.
 
 USAGE
 }
@@ -84,9 +83,9 @@ run_all() {
     done
 }
 
-# ------------------------------------------------------------
-# Find numbered Python scripts
-# ------------------------------------------------------------
+# ============================================================
+# Locate runtime scripts
+# ============================================================
 
 find_script_09() {
     local script
@@ -138,9 +137,9 @@ find_script_11() {
     printf '%s\n' "${script}"
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Interactive helpers
-# ------------------------------------------------------------
+# ============================================================
 
 prompt_default() {
     local prompt="$1"
@@ -172,9 +171,9 @@ prompt_yes_no() {
     [[ "${value}" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # 09 — GLM-OCR inference
-# ------------------------------------------------------------
+# ============================================================
 
 run_09() {
     local script
@@ -231,9 +230,9 @@ run_09() {
         --output "${output}"
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # 10 — Full pipeline validation
-# ------------------------------------------------------------
+# ============================================================
 
 run_10() {
     local script
@@ -326,14 +325,13 @@ run_10() {
         --min-label-accuracy "${min_label_accuracy}"
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # 11 — Label Studio → PaddleX dataset conversion
-# ------------------------------------------------------------
+# ============================================================
 
 run_11() {
     local script
-    local input
-    local images_root
+    local dataset
     local output
     local val_ratio
     local seed
@@ -347,16 +345,10 @@ run_11() {
     printf '%s\n' "════════════════════════════════════════════════════════════"
     printf 'Script: %s\n\n' "${script}"
 
-    input="$(
+    dataset="$(
         prompt_default \
-            "Label Studio JSON" \
-            "${WORK_ROOT}/label_result.json"
-    )"
-
-    images_root="$(
-        prompt_default \
-            "Images directory" \
-            "${WORK_ROOT}/page1-test1/images"
+            "Dataset directory" \
+            "${WORK_ROOT}/page1-test1"
     )"
 
     output="$(
@@ -378,48 +370,43 @@ run_11() {
     )"
 
     echo
+
     if prompt_yes_no "Use smoke-test mode?" "n"; then
         smoke_test_args+=(--smoke-test)
     fi
 
     echo
     printf '%s\n' "Conversion configuration:"
-    printf '  Label Studio JSON : %s\n' "${input}"
-    printf '  Images directory  : %s\n' "${images_root}"
-    printf '  Dataset output    : %s\n' "${output}"
-    printf '  Validation ratio  : %s\n' "${val_ratio}"
-    printf '  Random seed       : %s\n' "${seed}"
+    printf '  Dataset : %s\n' "${dataset}"
+    printf '  Output  : %s\n' "${output}"
+    printf '  Val ratio: %s\n' "${val_ratio}"
+    printf '  Seed    : %s\n' "${seed}"
 
     if [[ "${#smoke_test_args[@]}" -gt 0 ]]; then
-        printf '  Smoke test        : yes\n'
+        printf '  Smoke test: yes\n'
     else
-        printf '  Smoke test        : no\n'
+        printf '  Smoke test: no\n'
     fi
 
     echo
 
-    if [[ ! -f "${input}" ]]; then
-        fail "Label Studio JSON does not exist: ${input}"
-    fi
-
-    if [[ ! -d "${images_root}" ]]; then
-        fail "Images directory does not exist: ${images_root}"
+    if [[ ! -d "${dataset}" ]]; then
+        fail "Dataset directory does not exist: ${dataset}"
     fi
 
     mkdir -p "${output}"
 
     python "${script}" \
-        --input "${input}" \
-        --images-root "${images_root}" \
+        --dataset "${dataset}" \
         --output "${output}" \
         --val-ratio "${val_ratio}" \
         --seed "${seed}" \
         "${smoke_test_args[@]}"
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Interactive menu
-# ------------------------------------------------------------
+# ============================================================
 
 menu() {
     while true; do
@@ -445,48 +432,20 @@ menu() {
         read -r -p 'Select: ' choice
 
         case "${choice}" in
-            1)
-                run_all
-                ;;
-            2)
-                run_stage system
-                ;;
-            3)
-                run_stage venv
-                ;;
-            4)
-                run_stage paddlex
-                ;;
-            5)
-                run_stage glmocr
-                ;;
-            6)
-                run_stage config
-                ;;
-            7)
-                run_stage vllm
-                ;;
-            8)
-                run_stage sanity
-                ;;
-            9)
-                run_09
-                ;;
-            10)
-                run_10
-                ;;
-            11)
-                run_11
-                ;;
-            12)
-                show_config
-                ;;
-            q|Q)
-                exit 0
-                ;;
-            *)
-                warn "Invalid selection."
-                ;;
+            1)  run_all ;;
+            2)  run_stage system ;;
+            3)  run_stage venv ;;
+            4)  run_stage paddlex ;;
+            5)  run_stage glmocr ;;
+            6)  run_stage config ;;
+            7)  run_stage vllm ;;
+            8)  run_stage sanity ;;
+            9)  run_09 ;;
+            10) run_10 ;;
+            11) run_11 ;;
+            12) show_config ;;
+            q|Q) exit 0 ;;
+            *) warn "Invalid selection." ;;
         esac
 
         printf '\nPress Enter to continue...'
@@ -494,9 +453,9 @@ menu() {
     done
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Main
-# ------------------------------------------------------------
+# ============================================================
 
 case "${1:-menu}" in
     all)
@@ -529,9 +488,9 @@ case "${1:-menu}" in
         ;;
 esac
 
-# ------------------------------------------------------------
-# Completion message for "all"
-# ------------------------------------------------------------
+# ============================================================
+# Completion message
+# ============================================================
 
 if [[ "${1:-}" == "all" ]]; then
     section "Bootstrap complete"
