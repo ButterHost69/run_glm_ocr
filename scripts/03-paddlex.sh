@@ -17,6 +17,8 @@ else
     ok "PaddleX checkout already exists: ${PADDLEX_ROOT}"
 fi
 
+run python -m pip install "numpy<2"
+
 cd "${PADDLEX_ROOT}"
 log "Installing PaddleX in editable mode..."
 run python -m pip install --no-build-isolation -e ".[base]"

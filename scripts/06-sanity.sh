@@ -39,8 +39,8 @@ PY
 [[ -f "${WORK_ROOT}/our_glm.yaml" ]] \
     || fail "Missing config: ${WORK_ROOT}/our_glm.yaml"
 
-[[ -x "${WORK_ROOT}/start_vllm.sh" ]] \
-    || fail "Missing launcher: ${WORK_ROOT}/start_vllm.sh"
+[[ -f "${WORK_ROOT}/scripts/07-vllm.sh" ]] \
+    || fail "Missing launcher: ${WORK_ROOT}/scripts/07-vllm.sh"
 
 # ============================================================
 # Runtime scripts
