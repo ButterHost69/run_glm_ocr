@@ -1308,14 +1308,58 @@ def check_expected_values(
 # Visualization
 # ============================================================================
 
-def get_font():
+# Stable colors for the GLM-OCR task labels.
+LABEL_COLORS = {
+    "text": "#2563EB",       # blue
+    "table": "#16A34A",      # green
+    "formula": "#9333EA",    # purple
+}
+
+# Fallback colors for any additional labels.
+EXTRA_LABEL_COLORS = [
+    "#DC2626",  # red
+    "#EA580C",  # orange
+    "#0891B2",  # cyan
+    "#CA8A04",  # yellow
+    "#DB2777",  # pink
+    "#4F46E5",  # indigo
+    "#0F766E",  # teal
+    "#65A30D",  # lime
+]
+
+_extra_label_color_cache = {}
+
+
+def get_label_color(label: str) -> str:
+    label_key = normalize_text(label)
+
+    if label_key in LABEL_COLORS:
+        return LABEL_COLORS[label_key]
+
+    if label_key not in _extra_label_color_cache:
+        index = len(_extra_label_color_cache) % len(EXTRA_LABEL_COLORS)
+        _extra_label_color_cache[label_key] = EXTRA_LABEL_COLORS[index]
+
+    return _extra_label_color_cache[label_key]
+
+
+def get_font(image_width: int, image_height: int):
+    max_dim = max(image_width, image_height)
+    font_size = max(48, int(max_dim / 45))
+
     try:
         return ImageFont.truetype(
-            "DejaVuSans.ttf",
-            22,
+            "DejaVuSans-Bold.ttf",
+            font_size,
         )
     except Exception:
-        return ImageFont.load_default()
+        try:
+            return ImageFont.truetype(
+                "DejaVuSans.ttf",
+                font_size,
+            )
+        except Exception:
+            return ImageFont.load_default()
 
 
 def draw_label(
@@ -1334,11 +1378,20 @@ def draw_label(
             font=font,
         )
 
+        padding_x = 10
+        padding_y = 8
+
+        bbox = [
+            bbox[0] - padding_x,
+            bbox[1] - padding_y,
+            bbox[2] + padding_x,
+            bbox[3] + padding_y,
+        ]
+
         draw.rectangle(
             bbox,
             fill=fill,
         )
-
     except Exception:
         pass
 
@@ -1356,27 +1409,24 @@ def draw_box(
     label,
     outline,
     font,
+    line_width,
 ):
-    x1, y1, x2, y2 = map(
-        int,
-        bbox,
-    )
+    x1, y1, x2, y2 = map(int, bbox)
 
     draw.rectangle(
         [x1, y1, x2, y2],
         outline=outline,
-        width=4,
+        width=line_width,
     )
+
+    label_y = y1 - int(line_width * 2.5)
+
+    if label_y < 0:
+        label_y = y2 + int(line_width * 2.5)
 
     draw_label(
         draw,
-        (
-            x1,
-            max(
-                0,
-                y1 - 25,
-            ),
-        ),
+        (x1, label_y),
         label,
         font,
         outline,
@@ -1390,61 +1440,134 @@ def save_comparison_image(
     matches,
     output_path: Path,
 ):
-    image = Image.open(
-        image_path
-    ).convert("RGB")
-
+    image = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(image)
-    font = get_font()
+
+    image_width, image_height = image.size
+    max_dim = max(image_width, image_height)
+
+    font = get_font(
+        image_width,
+        image_height,
+    )
+
+    line_width = max(
+        6,
+        int(max_dim / 500),
+    )
 
     matched_predictions = {
         match["pred_index"]: match
         for match in matches
     }
 
-    # Ground truth = green
-    for index, gt in enumerate(
-        gt_boxes
-    ):
+    # ------------------------------------------------------------------------
+    # Ground truth: color is determined by semantic label.
+    # ------------------------------------------------------------------------
+    for index, gt in enumerate(gt_boxes):
+        label_type = gt["label"]
+        label_color = get_label_color(label_type)
 
         draw_box(
             draw,
             gt["bbox"],
-            f"GT {index}: {gt['label']}",
-            "green",
+            f"GT {index}: {label_type}",
+            label_color,
             font,
+            line_width,
         )
 
-    # Prediction = red
-    for index, prediction in enumerate(
-        predicted_boxes
-    ):
+    # ------------------------------------------------------------------------
+    # Predictions: same semantic label => same color as GT.
+    # ------------------------------------------------------------------------
+    for index, prediction in enumerate(predicted_boxes):
+        match = matched_predictions.get(index)
 
-        match = matched_predictions.get(
-            index
-        )
+        label_type = prediction["label"]
+        label_color = get_label_color(label_type)
 
-        label = (
-            f"P {index}: "
-            f"{prediction['label']}"
-        )
+        label = f"P {index}: {label_type}"
 
         if match is not None:
-            label += (
-                f" IoU={match['iou']:.2f}"
-            )
+            label += f" IoU={match['iou']:.2f}"
 
         draw_box(
             draw,
             prediction["bbox"],
             label,
-            "red",
+            label_color,
             font,
+            line_width,
         )
 
-    image.save(
-        output_path
-    )
+    # ------------------------------------------------------------------------
+    # Legend: only labels actually present in this image.
+    # ------------------------------------------------------------------------
+    legend_items = []
+    seen_labels = set()
+
+    for box in gt_boxes + predicted_boxes:
+        label_type = normalize_text(box.get("label"))
+
+        if not label_type or label_type in seen_labels:
+            continue
+
+        seen_labels.add(label_type)
+        legend_items.append((box["label"], get_label_color(box["label"])))
+
+    if legend_items:
+        padding = max(12, int(max_dim / 200))
+        swatch_size = max(24, int(max_dim / 120))
+        legend_font_size = max(30, int(max_dim / 75))
+
+        try:
+            legend_font = ImageFont.truetype(
+                "DejaVuSans-Bold.ttf",
+                legend_font_size,
+            )
+        except Exception:
+            legend_font = font
+
+        line_height = max(swatch_size, legend_font_size) + padding
+        legend_height = padding * 2 + line_height * len(legend_items)
+        legend_width = max(400, int(max_dim * 0.35))
+
+        legend_x = padding
+        legend_y = padding
+
+        draw.rectangle(
+            [
+                legend_x,
+                legend_y,
+                legend_x + legend_width,
+                legend_y + legend_height,
+            ],
+            fill="#111827",
+        )
+
+        for item_index, (label_name, label_color) in enumerate(legend_items):
+            row_y = legend_y + padding + item_index * line_height
+
+            draw.rectangle(
+                [
+                    legend_x + padding,
+                    row_y,
+                    legend_x + padding + swatch_size,
+                    row_y + swatch_size,
+                ],
+                fill=label_color,
+            )
+
+            text_x = legend_x + padding + swatch_size + padding
+
+            draw.text(
+                (text_x, row_y),
+                label_name,
+                fill="white",
+                font=legend_font,
+            )
+
+    image.save(output_path)
 
 
 # ============================================================================
@@ -2200,3 +2323,4 @@ if __name__ == "__main__":
     raise SystemExit(
         main()
     )
+
