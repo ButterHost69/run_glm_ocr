@@ -1308,14 +1308,14 @@ def check_expected_values(
 # Visualization
 # ============================================================================
 
-# Stable colors for the GLM-OCR task labels.
+# One stable color per semantic label. GT and prediction for the same label
+# intentionally use the same color so the visual comparison is immediate.
 LABEL_COLORS = {
     "text": "#2563EB",       # blue
     "table": "#16A34A",      # green
     "formula": "#9333EA",    # purple
 }
 
-# Fallback colors for any additional labels.
 EXTRA_LABEL_COLORS = [
     "#DC2626",  # red
     "#EA580C",  # orange
@@ -1345,7 +1345,12 @@ def get_label_color(label: str) -> str:
 
 def get_font(image_width: int, image_height: int):
     max_dim = max(image_width, image_height)
-    font_size = max(48, int(max_dim / 45))
+
+    # Large enough to remain readable on the original page image.
+    font_size = max(
+        36,
+        min(72, int(max_dim / 45)),
+    )
 
     try:
         return ImageFont.truetype(
@@ -1362,45 +1367,64 @@ def get_font(image_width: int, image_height: int):
             return ImageFont.load_default()
 
 
-def draw_label(
+def draw_label_near_border(
     draw,
-    xy,
+    x,
+    y,
     text,
     font,
     fill,
+    image_width,
+    image_height,
 ):
-    x, y = xy
-
+    """Draw a highly visible label directly against a bounding-box border."""
     try:
-        bbox = draw.textbbox(
-            (x, y),
+        text_bbox = draw.textbbox(
+            (0, 0),
             text,
             font=font,
         )
 
-        padding_x = 10
-        padding_y = 8
-
-        bbox = [
-            bbox[0] - padding_x,
-            bbox[1] - padding_y,
-            bbox[2] + padding_x,
-            bbox[3] + padding_y,
-        ]
-
-        draw.rectangle(
-            bbox,
-            fill=fill,
-        )
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
     except Exception:
-        pass
+        text_width = max(80, len(text) * 20)
+        text_height = 30
+
+    padding_x = max(8, text_height // 5)
+    padding_y = max(5, text_height // 6)
+
+    box_width = text_width + padding_x * 2
+    box_height = text_height + padding_y * 2
+
+    # Keep the label entirely inside the image.
+    x = max(0, min(int(x), image_width - box_width))
+    y = max(0, min(int(y), image_height - box_height))
+
+    label_box = [
+        x,
+        y,
+        x + box_width,
+        y + box_height,
+    ]
+
+    # Dark backing makes white text readable even over a busy form.
+    draw.rectangle(
+        label_box,
+        fill=fill,
+    )
 
     draw.text(
-        (x, y),
+        (
+            x + padding_x,
+            y + padding_y,
+        ),
         text,
         fill="white",
         font=font,
     )
+
+    return box_width, box_height
 
 
 def draw_box(
@@ -1410,8 +1434,17 @@ def draw_box(
     outline,
     font,
     line_width,
+    image_width,
+    image_height,
+    label_side="top",
 ):
     x1, y1, x2, y2 = map(int, bbox)
+
+    # Clamp box to the image so borders never disappear outside the canvas.
+    x1 = max(0, min(x1, image_width - 1))
+    y1 = max(0, min(y1, image_height - 1))
+    x2 = max(0, min(x2, image_width - 1))
+    y2 = max(0, min(y2, image_height - 1))
 
     draw.rectangle(
         [x1, y1, x2, y2],
@@ -1419,17 +1452,49 @@ def draw_box(
         width=line_width,
     )
 
-    label_y = y1 - int(line_width * 2.5)
+    # Put the label directly against the top border. When the top edge is too
+    # close to the image boundary, put it just inside the box instead.
+    try:
+        text_bbox = draw.textbbox(
+            (0, 0),
+            label,
+            font=font,
+        )
+        text_height = text_bbox[3] - text_bbox[1]
+    except Exception:
+        text_height = 40
 
-    if label_y < 0:
-        label_y = y2 + int(line_width * 2.5)
+    label_gap = max(2, line_width // 2)
+    label_height = text_height + max(10, text_height // 3)
 
-    draw_label(
+    if label_side == "bottom":
+        label_y = y2 - label_height - label_gap
+    elif label_side == "right":
+        label_y = y1 + label_gap
+    else:
+        # Prefer just above the top border.
+        label_y = y1 - label_height - label_gap
+
+        # If that would clip the label, put it just inside the box.
+        if label_y < 0:
+            label_y = y1 + label_gap
+
+    # Give each label its own corner/side so GT and prediction labels do not
+    # paint over one another when boxes overlap.
+    if label_side == "right":
+        label_x = x2 - max(120, int(image_width * 0.02))
+    else:
+        label_x = x1 + label_gap
+
+    draw_label_near_border(
         draw,
-        (x1, label_y),
+        label_x,
+        label_y,
         label,
         font,
         outline,
+        image_width,
+        image_height,
     )
 
 
@@ -1453,7 +1518,7 @@ def save_comparison_image(
 
     line_width = max(
         6,
-        int(max_dim / 500),
+        min(14, int(max_dim / 500)),
     )
 
     matched_predictions = {
@@ -1462,7 +1527,7 @@ def save_comparison_image(
     }
 
     # ------------------------------------------------------------------------
-    # Ground truth: color is determined by semantic label.
+    # Ground truth
     # ------------------------------------------------------------------------
     for index, gt in enumerate(gt_boxes):
         label_type = gt["label"]
@@ -1475,10 +1540,13 @@ def save_comparison_image(
             label_color,
             font,
             line_width,
+            image_width,
+            image_height,
+            label_side="top",
         )
 
     # ------------------------------------------------------------------------
-    # Predictions: same semantic label => same color as GT.
+    # Predictions
     # ------------------------------------------------------------------------
     for index, prediction in enumerate(predicted_boxes):
         match = matched_predictions.get(index)
@@ -1489,8 +1557,10 @@ def save_comparison_image(
         label = f"P {index}: {label_type}"
 
         if match is not None:
-            label += f" IoU={match['iou']:.2f}"
+            label += f"  IoU={match['iou']:.2f}"
 
+        # Put prediction labels immediately inside the top border. This keeps
+        # them separate from GT labels without introducing a separate legend.
         draw_box(
             draw,
             prediction["bbox"],
@@ -1498,74 +1568,10 @@ def save_comparison_image(
             label_color,
             font,
             line_width,
+            image_width,
+            image_height,
+            label_side="bottom",
         )
-
-    # ------------------------------------------------------------------------
-    # Legend: only labels actually present in this image.
-    # ------------------------------------------------------------------------
-    legend_items = []
-    seen_labels = set()
-
-    for box in gt_boxes + predicted_boxes:
-        label_type = normalize_text(box.get("label"))
-
-        if not label_type or label_type in seen_labels:
-            continue
-
-        seen_labels.add(label_type)
-        legend_items.append((box["label"], get_label_color(box["label"])))
-
-    if legend_items:
-        padding = max(12, int(max_dim / 200))
-        swatch_size = max(24, int(max_dim / 120))
-        legend_font_size = max(30, int(max_dim / 75))
-
-        try:
-            legend_font = ImageFont.truetype(
-                "DejaVuSans-Bold.ttf",
-                legend_font_size,
-            )
-        except Exception:
-            legend_font = font
-
-        line_height = max(swatch_size, legend_font_size) + padding
-        legend_height = padding * 2 + line_height * len(legend_items)
-        legend_width = max(400, int(max_dim * 0.35))
-
-        legend_x = padding
-        legend_y = padding
-
-        draw.rectangle(
-            [
-                legend_x,
-                legend_y,
-                legend_x + legend_width,
-                legend_y + legend_height,
-            ],
-            fill="#111827",
-        )
-
-        for item_index, (label_name, label_color) in enumerate(legend_items):
-            row_y = legend_y + padding + item_index * line_height
-
-            draw.rectangle(
-                [
-                    legend_x + padding,
-                    row_y,
-                    legend_x + padding + swatch_size,
-                    row_y + swatch_size,
-                ],
-                fill=label_color,
-            )
-
-            text_x = legend_x + padding + swatch_size + padding
-
-            draw.text(
-                (text_x, row_y),
-                label_name,
-                fill="white",
-                font=legend_font,
-            )
 
     image.save(output_path)
 
