@@ -166,7 +166,7 @@ else
     (
         cd "${PADDLEX_ROOT}"
 
-        "${TRAINING_PYTHON}" -m pip \
+        uv pip \
             install --no-deps \
             --editable \
             paddlex/repo_manager/repos/PaddleDetection
