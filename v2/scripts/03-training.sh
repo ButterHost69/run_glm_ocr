@@ -135,4 +135,10 @@ uv pip install \
 
 echo "[INFO] Installing PaddleDetection plugin..."
 
-"${PADDLEX_ROOT}/paddlex"
+if [[ ! -x "${TRAINING_VENV}/bin/paddlex" ]]; then
+    echo "[ERROR] PaddleX CLI was not installed:"
+    echo "        ${TRAINING_VENV}/bin/paddlex"
+    exit 1
+fi
+
+"${TRAINING_VENV}/bin/paddlex" --install PaddleDetection
