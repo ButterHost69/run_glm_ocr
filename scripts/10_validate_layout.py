@@ -1344,13 +1344,11 @@ def get_label_color(label: str) -> str:
 
 
 def get_font(image_width: int, image_height: int):
-    max_dim = max(image_width, image_height)
-
-    # Large enough to remain readable on the original page image.
-    font_size = max(
-        36,
-        min(72, int(max_dim / 45)),
-    )
+    # Derive font size from the actual image resolution.  The shorter edge is
+    # used so the label remains proportional across portrait and landscape
+    # documents without relying on a fixed pixel size.
+    reference_dimension = min(image_width, image_height)
+    font_size = max(1, int(reference_dimension * 0.055))
 
     try:
         return ImageFont.truetype(
@@ -1377,27 +1375,30 @@ def draw_label_near_border(
     image_width,
     image_height,
 ):
-    """Draw a highly visible label directly against a bounding-box border."""
+    """Draw a large, high-contrast label directly against a box border."""
     try:
         text_bbox = draw.textbbox(
             (0, 0),
             text,
             font=font,
+            stroke_width=1,
         )
 
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
     except Exception:
-        text_width = max(80, len(text) * 20)
-        text_height = 30
+        text_width = max(1, len(text) * max(1, font.size))
+        text_height = max(1, font.size)
 
-    padding_x = max(8, text_height // 5)
-    padding_y = max(5, text_height // 6)
+    # Padding scales with the rendered font rather than using fixed pixel
+    # dimensions.
+    padding_x = max(1, int(text_height * 0.28))
+    padding_y = max(1, int(text_height * 0.22))
 
     box_width = text_width + padding_x * 2
     box_height = text_height + padding_y * 2
 
-    # Keep the label entirely inside the image.
+    # Keep the whole label on-canvas.
     x = max(0, min(int(x), image_width - box_width))
     y = max(0, min(int(y), image_height - box_height))
 
@@ -1408,7 +1409,6 @@ def draw_label_near_border(
         y + box_height,
     ]
 
-    # Dark backing makes white text readable even over a busy form.
     draw.rectangle(
         label_box,
         fill=fill,
@@ -1422,6 +1422,8 @@ def draw_label_near_border(
         text,
         fill="white",
         font=font,
+        stroke_width=max(1, int(text_height * 0.025)),
+        stroke_fill=fill,
     )
 
     return box_width, box_height
@@ -1440,7 +1442,6 @@ def draw_box(
 ):
     x1, y1, x2, y2 = map(int, bbox)
 
-    # Clamp box to the image so borders never disappear outside the canvas.
     x1 = max(0, min(x1, image_width - 1))
     y1 = max(0, min(y1, image_height - 1))
     x2 = max(0, min(x2, image_width - 1))
@@ -1452,8 +1453,7 @@ def draw_box(
         width=line_width,
     )
 
-    # Put the label directly against the top border. When the top edge is too
-    # close to the image boundary, put it just inside the box instead.
+    # Use the rendered text height to determine the label placement gap.
     try:
         text_bbox = draw.textbbox(
             (0, 0),
@@ -1462,29 +1462,21 @@ def draw_box(
         )
         text_height = text_bbox[3] - text_bbox[1]
     except Exception:
-        text_height = 40
+        text_height = max(1, getattr(font, "size", 1))
 
-    label_gap = max(2, line_width // 2)
-    label_height = text_height + max(10, text_height // 3)
+    label_gap = max(1, int(text_height * 0.12))
+    label_height = text_height + int(text_height * 0.44)
 
     if label_side == "bottom":
         label_y = y2 - label_height - label_gap
-    elif label_side == "right":
-        label_y = y1 + label_gap
+        if label_y < y1:
+            label_y = y2 + label_gap
     else:
-        # Prefer just above the top border.
         label_y = y1 - label_height - label_gap
-
-        # If that would clip the label, put it just inside the box.
         if label_y < 0:
             label_y = y1 + label_gap
 
-    # Give each label its own corner/side so GT and prediction labels do not
-    # paint over one another when boxes overlap.
-    if label_side == "right":
-        label_x = x2 - max(120, int(image_width * 0.02))
-    else:
-        label_x = x1 + label_gap
+    label_x = x1
 
     draw_label_near_border(
         draw,
@@ -1516,10 +1508,8 @@ def save_comparison_image(
         image_height,
     )
 
-    line_width = max(
-        6,
-        min(14, int(max_dim / 500)),
-    )
+    # Border thickness scales with the page resolution.
+    line_width = max(1, int(max_dim * 0.0045))
 
     matched_predictions = {
         match["pred_index"]: match
