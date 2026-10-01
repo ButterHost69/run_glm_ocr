@@ -1308,61 +1308,65 @@ def check_expected_values(
 # Visualization
 # ============================================================================
 
-# One stable color per semantic label. GT and prediction for the same label
-# intentionally use the same color so the visual comparison is immediate.
 LABEL_COLORS = {
-    "text": "#2563EB",       # blue
-    "table": "#16A34A",      # green
-    "formula": "#9333EA",    # purple
+    "text": "#2563EB",
+    "table": "#16A34A",
+    "formula": "#9333EA",
 }
 
 EXTRA_LABEL_COLORS = [
-    "#DC2626",  # red
-    "#EA580C",  # orange
-    "#0891B2",  # cyan
-    "#CA8A04",  # yellow
-    "#DB2777",  # pink
-    "#4F46E5",  # indigo
-    "#0F766E",  # teal
-    "#65A30D",  # lime
+    "#DC2626",
+    "#EA580C",
+    "#0891B2",
+    "#CA8A04",
+    "#DB2777",
+    "#4F46E5",
+    "#0F766E",
+    "#65A30D",
 ]
 
 _extra_label_color_cache = {}
 
 
 def get_label_color(label: str) -> str:
-    label_key = normalize_text(label)
+    key = normalize_text(label)
 
-    if label_key in LABEL_COLORS:
-        return LABEL_COLORS[label_key]
+    if key in LABEL_COLORS:
+        return LABEL_COLORS[key]
 
-    if label_key not in _extra_label_color_cache:
-        index = len(_extra_label_color_cache) % len(EXTRA_LABEL_COLORS)
-        _extra_label_color_cache[label_key] = EXTRA_LABEL_COLORS[index]
+    if key not in _extra_label_color_cache:
+        _extra_label_color_cache[key] = EXTRA_LABEL_COLORS[
+            len(_extra_label_color_cache) % len(EXTRA_LABEL_COLORS)
+        ]
 
-    return _extra_label_color_cache[label_key]
+    return _extra_label_color_cache[key]
 
 
 def get_font(image_width: int, image_height: int):
-    # Derive font size from the actual image resolution.  The shorter edge is
-    # used so the label remains proportional across portrait and landscape
-    # documents without relying on a fixed pixel size.
-    reference_dimension = min(image_width, image_height)
-    font_size = max(1, int(reference_dimension * 0.055))
+    """Scale the label font from the actual page dimensions."""
+    reference = min(image_width, image_height)
+
+    # Large enough to survive full-page preview scaling. This is proportional
+    # to the image, not a fixed pixel size.
+    font_size = max(40, int(reference * 0.075))
 
     try:
-        return ImageFont.truetype(
-            "DejaVuSans-Bold.ttf",
-            font_size,
-        )
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
     except Exception:
         try:
-            return ImageFont.truetype(
-                "DejaVuSans.ttf",
-                font_size,
-            )
+            return ImageFont.truetype("DejaVuSans.ttf", font_size)
         except Exception:
             return ImageFont.load_default()
+
+
+def _text_size(draw, text, font):
+    box = draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+        stroke_width=0,
+    )
+    return max(1, box[2] - box[0]), max(1, box[3] - box[1])
 
 
 def draw_label_near_border(
@@ -1375,70 +1379,105 @@ def draw_label_near_border(
     image_width,
     image_height,
 ):
-    """Draw a large, high-contrast label directly against a box border."""
-    try:
-        text_bbox = draw.textbbox(
-            (0, 0),
-            text,
-            font=font,
-            stroke_width=1,
-        )
+    """Draw an opaque, high-contrast label tab attached to a box border."""
+    text_width, text_height = _text_size(draw, text, font)
 
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
-    except Exception:
-        text_width = max(1, len(text) * max(1, font.size))
-        text_height = max(1, font.size)
+    # Scale all tab dimensions from the actual rendered font.
+    pad_x = max(12, int(text_height * 0.30))
+    pad_y = max(10, int(text_height * 0.22))
+    keyline = max(2, int(text_height * 0.04))
+    text_stroke = max(2, int(text_height * 0.035))
 
-    # Padding scales with the rendered font rather than using fixed pixel
-    # dimensions.
-    padding_x = max(1, int(text_height * 0.28))
-    padding_y = max(1, int(text_height * 0.22))
+    width = text_width + 2 * pad_x
+    height = text_height + 2 * pad_y
 
-    box_width = text_width + padding_x * 2
-    box_height = text_height + padding_y * 2
+    # The label is never allowed to leave the image.
+    x = max(0, min(int(x), image_width - width))
+    y = max(0, min(int(y), image_height - height))
 
-    # Keep the whole label on-canvas.
-    x = max(0, min(int(x), image_width - box_width))
-    y = max(0, min(int(y), image_height - box_height))
-
-    label_box = [
-        x,
-        y,
-        x + box_width,
-        y + box_height,
-    ]
+    # White keyline separates the tab from the document and from other boxes.
+    draw.rectangle(
+        [
+            x - keyline,
+            y - keyline,
+            x + width + keyline,
+            y + height + keyline,
+        ],
+        fill="white",
+    )
 
     draw.rectangle(
-        label_box,
+        [
+            x,
+            y,
+            x + width,
+            y + height,
+        ],
         fill=fill,
     )
 
+    # White text with a dark outline remains readable even at image regions
+    # containing similarly coloured text/lines.
     draw.text(
-        (
-            x + padding_x,
-            y + padding_y,
-        ),
+        (x + pad_x, y + pad_y),
         text,
-        fill="white",
         font=font,
-        stroke_width=max(1, int(text_height * 0.025)),
-        stroke_fill=fill,
+        fill="white",
+        stroke_width=text_stroke,
+        stroke_fill="#111827",
     )
 
-    return box_width, box_height
+    return width, height
 
 
-def draw_box(
+def _label_geometry(
     draw,
     bbox,
     label,
-    outline,
     font,
+    image_width,
+    image_height,
+    label_side,
+):
+    x1, y1, x2, y2 = map(int, bbox)
+
+    x1 = max(0, min(x1, image_width - 1))
+    y1 = max(0, min(y1, image_height - 1))
+    x2 = max(0, min(x2, image_width - 1))
+    y2 = max(0, min(y2, image_height - 1))
+
+    _, text_height = _text_size(draw, label, font)
+    pad_y = max(10, int(text_height * 0.22))
+    label_height = text_height + 2 * pad_y
+    gap = max(6, int(text_height * 0.14))
+
+    if label_side == "bottom":
+        # Prefer just below the bottom edge; if there is no room, attach to
+        # the inside of the bottom edge.
+        y = y2 + gap
+        if y + label_height > image_height:
+            y = y2 - label_height - gap
+            if y < y1:
+                y = y1 + gap
+    else:
+        # Prefer just above the top edge; if there is no room, attach to the
+        # inside of the top edge.
+        y = y1 - label_height - gap
+        if y < 0:
+            y = y1 + gap
+            if y + label_height > y2:
+                y = y1
+
+    return x1, y, x2, y2
+
+
+def draw_box_border(
+    draw,
+    bbox,
+    outline,
     line_width,
     image_width,
     image_height,
-    label_side="top",
 ):
     x1, y1, x2, y2 = map(int, bbox)
 
@@ -1453,34 +1492,30 @@ def draw_box(
         width=line_width,
     )
 
-    # Use the rendered text height to determine the label placement gap.
-    try:
-        text_bbox = draw.textbbox(
-            (0, 0),
-            label,
-            font=font,
-        )
-        text_height = text_bbox[3] - text_bbox[1]
-    except Exception:
-        text_height = max(1, getattr(font, "size", 1))
 
-    label_gap = max(1, int(text_height * 0.12))
-    label_height = text_height + int(text_height * 0.44)
-
-    if label_side == "bottom":
-        label_y = y2 - label_height - label_gap
-        if label_y < y1:
-            label_y = y2 + label_gap
-    else:
-        label_y = y1 - label_height - label_gap
-        if label_y < 0:
-            label_y = y1 + label_gap
-
-    label_x = x1
+def draw_box_label(
+    draw,
+    bbox,
+    label,
+    outline,
+    font,
+    image_width,
+    image_height,
+    label_side,
+):
+    x1, label_y, _, _ = _label_geometry(
+        draw,
+        bbox,
+        label,
+        font,
+        image_width,
+        image_height,
+        label_side,
+    )
 
     draw_label_near_border(
         draw,
-        label_x,
+        x1,
         label_y,
         label,
         font,
@@ -1501,63 +1536,80 @@ def save_comparison_image(
     draw = ImageDraw.Draw(image)
 
     image_width, image_height = image.size
-    max_dim = max(image_width, image_height)
+    reference = min(image_width, image_height)
+    font = get_font(image_width, image_height)
 
-    font = get_font(
-        image_width,
-        image_height,
-    )
-
-    # Border thickness scales with the page resolution.
-    line_width = max(1, int(max_dim * 0.0045))
+    # Keep borders relatively light. The labels carry the visual emphasis.
+    line_width = max(2, int(reference * 0.0018))
 
     matched_predictions = {
         match["pred_index"]: match
         for match in matches
     }
 
-    # ------------------------------------------------------------------------
-    # Ground truth
-    # ------------------------------------------------------------------------
+    # ========================================================================
+    # PASS 1: draw every border first.
+    #
+    # Labels are deliberately NOT drawn here. Otherwise a later overlapping
+    # box can paint over an earlier label, which was the main reason labels
+    # could appear to be missing.
+    # ========================================================================
+    for gt in gt_boxes:
+        label_type = gt["label"]
+        draw_box_border(
+            draw,
+            gt["bbox"],
+            get_label_color(label_type),
+            line_width,
+            image_width,
+            image_height,
+        )
+
+    for prediction in predicted_boxes:
+        label_type = prediction["label"]
+        draw_box_border(
+            draw,
+            prediction["bbox"],
+            get_label_color(label_type),
+            line_width,
+            image_width,
+            image_height,
+        )
+
+    # ========================================================================
+    # PASS 2: draw every label LAST.
+    #
+    # This guarantees that labels remain visible even where bounding boxes
+    # overlap.
+    # ========================================================================
     for index, gt in enumerate(gt_boxes):
         label_type = gt["label"]
-        label_color = get_label_color(label_type)
 
-        draw_box(
+        draw_box_label(
             draw,
             gt["bbox"],
             f"GT {index}: {label_type}",
-            label_color,
+            get_label_color(label_type),
             font,
-            line_width,
             image_width,
             image_height,
             label_side="top",
         )
 
-    # ------------------------------------------------------------------------
-    # Predictions
-    # ------------------------------------------------------------------------
     for index, prediction in enumerate(predicted_boxes):
         match = matched_predictions.get(index)
-
         label_type = prediction["label"]
-        label_color = get_label_color(label_type)
 
         label = f"P {index}: {label_type}"
-
         if match is not None:
             label += f"  IoU={match['iou']:.2f}"
 
-        # Put prediction labels immediately inside the top border. This keeps
-        # them separate from GT labels without introducing a separate legend.
-        draw_box(
+        draw_box_label(
             draw,
             prediction["bbox"],
             label,
-            label_color,
+            get_label_color(label_type),
             font,
-            line_width,
             image_width,
             image_height,
             label_side="bottom",
