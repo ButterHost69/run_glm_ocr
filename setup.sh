@@ -22,6 +22,7 @@ Usage:
   ./setup.sh sanity          Run installation checks
   ./setup.sh 09              Run GLM-OCR inference
   ./setup.sh 10              Validate the complete GLM-OCR pipeline
+  ./setup.sh 11              Convert Label Studio dataset
   ./setup.sh status          Show configuration
   ./setup.sh help            Show this help
 
@@ -29,10 +30,10 @@ Environment overrides can be placed in:
   ${ROOT_DIR}/config/local.env
 
 Notes:
-  - 09 and 10 are interactive runtime stages and are not included in "all".
+  - 09, 10 and 11 are runtime/data stages and are not included in "all".
   - 09 requires the GLM-OCR vLLM server to be running.
-  - 10 expects a PaddleX layout dataset when using dataset mode.
-  - 10 uses the validation thresholds entered interactively.
+  - 10 expects a PaddleX layout dataset.
+  - 11 converts Label Studio native JSON into PaddleX COCO format.
 
 USAGE
 }
@@ -127,8 +128,18 @@ find_script_10() {
     printf '%s\n' "${script}"
 }
 
+find_script_11() {
+    local script="${ROOT_DIR}/scripts/11_convert_dataset.py"
+
+    if [[ ! -f "${script}" ]]; then
+        fail "Could not find: ${script}"
+    fi
+
+    printf '%s\n' "${script}"
+}
+
 # ------------------------------------------------------------
-# Helpers for interactive runtime stages
+# Interactive helpers
 # ------------------------------------------------------------
 
 prompt_default() {
@@ -162,7 +173,7 @@ prompt_yes_no() {
 }
 
 # ------------------------------------------------------------
-# Stage 09 — GLM-OCR inference
+# 09 — GLM-OCR inference
 # ------------------------------------------------------------
 
 run_09() {
@@ -221,7 +232,7 @@ run_09() {
 }
 
 # ------------------------------------------------------------
-# Stage 10 — Full pipeline validation
+# 10 — Full pipeline validation
 # ------------------------------------------------------------
 
 run_10() {
@@ -316,6 +327,97 @@ run_10() {
 }
 
 # ------------------------------------------------------------
+# 11 — Label Studio → PaddleX dataset conversion
+# ------------------------------------------------------------
+
+run_11() {
+    local script
+    local input
+    local images_root
+    local output
+    local val_ratio
+    local seed
+    local smoke_test_args=()
+
+    script="$(find_script_11)"
+
+    echo
+    printf '%s\n' "════════════════════════════════════════════════════════════"
+    printf '%s\n' " 11 — Label Studio → PaddleX dataset conversion"
+    printf '%s\n' "════════════════════════════════════════════════════════════"
+    printf 'Script: %s\n\n' "${script}"
+
+    input="$(
+        prompt_default \
+            "Label Studio JSON" \
+            "${WORK_ROOT}/label_result.json"
+    )"
+
+    images_root="$(
+        prompt_default \
+            "Images directory" \
+            "${WORK_ROOT}/page1-test1/images"
+    )"
+
+    output="$(
+        prompt_default \
+            "Dataset output directory" \
+            "${WORK_ROOT}/output/page1-test1"
+    )"
+
+    val_ratio="$(
+        prompt_default \
+            "Validation ratio" \
+            "0.1"
+    )"
+
+    seed="$(
+        prompt_default \
+            "Random seed" \
+            "42"
+    )"
+
+    echo
+    if prompt_yes_no "Use smoke-test mode?" "n"; then
+        smoke_test_args+=(--smoke-test)
+    fi
+
+    echo
+    printf '%s\n' "Conversion configuration:"
+    printf '  Label Studio JSON : %s\n' "${input}"
+    printf '  Images directory  : %s\n' "${images_root}"
+    printf '  Dataset output    : %s\n' "${output}"
+    printf '  Validation ratio  : %s\n' "${val_ratio}"
+    printf '  Random seed       : %s\n' "${seed}"
+
+    if [[ "${#smoke_test_args[@]}" -gt 0 ]]; then
+        printf '  Smoke test        : yes\n'
+    else
+        printf '  Smoke test        : no\n'
+    fi
+
+    echo
+
+    if [[ ! -f "${input}" ]]; then
+        fail "Label Studio JSON does not exist: ${input}"
+    fi
+
+    if [[ ! -d "${images_root}" ]]; then
+        fail "Images directory does not exist: ${images_root}"
+    fi
+
+    mkdir -p "${output}"
+
+    python "${script}" \
+        --input "${input}" \
+        --images-root "${images_root}" \
+        --output "${output}" \
+        --val-ratio "${val_ratio}" \
+        --seed "${seed}" \
+        "${smoke_test_args[@]}"
+}
+
+# ------------------------------------------------------------
 # Interactive menu
 # ------------------------------------------------------------
 
@@ -336,7 +438,8 @@ menu() {
         printf '  8) Sanity checks\n'
         printf '  9) Run GLM-OCR inference\n'
         printf ' 10) Validate complete pipeline\n'
-        printf ' 11) Show configuration\n'
+        printf ' 11) Convert Label Studio dataset\n'
+        printf ' 12) Show configuration\n'
         printf '  q) Quit\n\n'
 
         read -r -p 'Select: ' choice
@@ -373,6 +476,9 @@ menu() {
                 run_10
                 ;;
             11)
+                run_11
+                ;;
+            12)
                 show_config
                 ;;
             q|Q)
@@ -405,6 +511,9 @@ case "${1:-menu}" in
     10)
         run_10
         ;;
+    11)
+        run_11
+        ;;
     status)
         show_config
         ;;
@@ -436,6 +545,8 @@ if [[ "${1:-}" == "all" ]]; then
     printf '\nGLM-OCR config:\n  %s/our_glm.yaml\n' "${WORK_ROOT}"
 
     printf '\nStart vLLM:\n  ./setup.sh vllm\n'
+
+    printf '\nConvert Label Studio dataset:\n  ./setup.sh 11\n'
 
     printf '\nRun GLM-OCR:\n  ./setup.sh 09\n'
 
