@@ -1,15 +1,3 @@
-#!/usr/bin/env bash
-set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../lib/common.sh"
-
-section "05 · GLM-OCR configuration"
-
-mkdir -p "${WORK_ROOT}"
-
-log "Writing ${WORK_ROOT}/our_glm.yaml..."
-cat > "${WORK_ROOT}/our_glm.yaml" <<YAML
 pipeline:
   maas:
     enabled: false
@@ -23,15 +11,15 @@ pipeline:
 
   ocr_api:
     api_host: 127.0.0.1
-    api_port: ${VLLM_PORT}
+    api_port: 8081
     api_path: /v1/chat/completions
     api_mode: openai
-    model: ${VLLM_MODEL_NAME}
+    model: glm-ocr
     verify_ssl: false
 
   layout:
-    model_dir: ${LAYOUT_MODEL_DIR}
-    threshold: ${LAYOUT_THRESHOLD}
+    model_dir: /mnt/c/Users/Dell/gitpull/run_glm_ocr/output/ppdoclayoutv3_test/best_model/inference
+    threshold: 0.005
     batch_size: 1
     workers: 1
     cuda_visible_devices: "0"
@@ -100,6 +88,3 @@ pipeline:
         - reference
         - footer_image
         - header_image
-YAML
-
-printf 'Config:  %s\n' "${WORK_ROOT}/our_glm.yaml"
