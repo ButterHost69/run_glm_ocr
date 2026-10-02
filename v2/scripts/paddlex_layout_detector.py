@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+KEEP_LABELS = {"table", "text"}
 
 class PaddleXPPDocLayoutDetector(PPDocLayoutDetector):
     """
@@ -460,6 +461,8 @@ class PaddleXPPDocLayoutDetector(PPDocLayoutDetector):
                 use_polygon=use_polygon,
             )
 
+            if page_result["label"] not in KEEP_LABELS:
+                continue
             all_results.append(
                 page_result
             )
