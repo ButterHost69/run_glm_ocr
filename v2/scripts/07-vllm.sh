@@ -8,7 +8,7 @@ section "vLLM launcher"
 
 require_file "${INFERENCE_PYTHON}"
 
-cat > "${ROOT_DIR}/start_vllm.sh" <<SH2
+cat > "${ROOT_DIR}/start_vllm.sh" <<'SH2'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -30,4 +30,5 @@ exec "${INFERENCE_VENV}/bin/vllm" serve zai-org/GLM-OCR \
 SH2
 
 chmod +x "${ROOT_DIR}/start_vllm.sh"
+
 ok "Wrote ${ROOT_DIR}/start_vllm.sh"
