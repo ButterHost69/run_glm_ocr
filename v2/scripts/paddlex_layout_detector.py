@@ -463,7 +463,7 @@ class PaddleXPPDocLayoutDetector(PPDocLayoutDetector):
 
             page_result = []
             for result in raw_page_result:
-                if result["label"] in KEEP_LABEL:
+                if result["label"] in KEEP_LABELS:
                     result["task_type"] = result["label"]
                     page_result.append(result)
 
