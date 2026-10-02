@@ -150,8 +150,8 @@ echo "[INFO] Installing vLLM ${VLLM_VERSION}..."
 
 uv pip install \
     --python "${INFERENCE_PYTHON}" \
-    "vllm==${VLLM_VERSION}" \
-    "transformers==${TRANSFORMERS_VERSION}"
+    "vllm" \
+    "transformers"
 
 # ------------------------------------------------------------
 # 9. Verification
