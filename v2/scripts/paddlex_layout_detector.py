@@ -455,14 +455,18 @@ class PaddleXPPDocLayoutDetector(PPDocLayoutDetector):
                 paddle_result
             )
 
-            page_result = self._convert_page_result(
+            raw_page_result = self._convert_page_result(
                 paddle_boxes,
                 image,
                 use_polygon=use_polygon,
             )
 
-            if page_result["label"] not in KEEP_LABELS:
-                continue
+            page_result = []
+            for result in raw_page_result:
+                if result["label"] in KEEP_LABEL:
+                    result["task_type"] = result["label"]
+                    page_result.append(result)
+
             all_results.append(
                 page_result
             )
