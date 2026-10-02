@@ -18,7 +18,7 @@ pipeline:
 
   ocr_api:
     api_host: 127.0.0.1
-    api_port: 8080
+    api_port: 8081
     api_path: /v1/chat/completions
     api_mode: openai
     model: glm-ocr
