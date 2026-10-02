@@ -79,6 +79,184 @@ install_training() {
     run_script 06-training-sanity.sh
 }
 
+run_validation_cli() {
+    # Preserve direct CLI usage:
+    #
+    #   ./setup.sh validate --image ... --ground-truth ...
+    #
+    if (( $# > 0 )); then
+        require_file "${INFERENCE_VENV}/bin/python"
+        require_file "${ROOT_DIR}/scripts/10_validate_layout.py"
+
+        "${INFERENCE_VENV}/bin/python" \
+            "${ROOT_DIR}/scripts/10_validate_layout.py" \
+            "$@"
+        return
+    fi
+
+    local default_config="${ROOT_DIR}/our_glm.yaml"
+    local default_output="${ROOT_DIR}/output/glmocr_validation"
+
+    local config=""
+    local mode=""
+    local dataset=""
+    local image=""
+    local ground_truth=""
+    local expected=""
+
+    local iou_threshold="0.50"
+    local min_f1="0.50"
+    local min_iou="0.50"
+    local min_label_accuracy="0.50"
+
+    echo
+    echo "============================================"
+    echo "             Validate Layout"
+    echo "============================================"
+    echo
+
+    read -rp \
+        "Config path [${default_config}]: " \
+        config
+    config="${config:-${default_config}}"
+
+    echo
+    echo "Validation mode:"
+    echo "1) Single image"
+    echo "2) PaddleX dataset"
+    echo
+
+    while true; do
+        read -rp "Select [1]: " mode
+        mode="${mode:-1}"
+
+        case "${mode}" in
+            1|2)
+                break
+                ;;
+            *)
+                echo "Invalid selection. Enter 1 or 2."
+                ;;
+        esac
+    done
+
+    if [[ "${mode}" == "1" ]]; then
+        echo
+
+        read -rp "Image path: " image
+        if [[ -z "${image}" ]]; then
+            echo "[ERROR] Image path is required."
+            return 1
+        fi
+
+        read -rp "Ground-truth annotation file: " ground_truth
+        if [[ -z "${ground_truth}" ]]; then
+            echo "[ERROR] Ground-truth annotation file is required."
+            return 1
+        fi
+    else
+        echo
+
+        read -rp "PaddleX dataset directory: " dataset
+        if [[ -z "${dataset}" ]]; then
+            echo "[ERROR] Dataset directory is required."
+            return 1
+        fi
+    fi
+
+    echo
+
+    read -rp \
+        "Expected OCR JSON [none]: " \
+        expected
+
+    read -rp \
+        "Output directory [${default_output}]: " \
+        output
+    output="${output:-${default_output}}"
+
+    echo
+
+    read -rp \
+        "IoU threshold [${iou_threshold}]: " \
+        iou_threshold
+    iou_threshold="${iou_threshold:-0.50}"
+
+    read -rp \
+        "Minimum F1 [${min_f1}]: " \
+        min_f1
+    min_f1="${min_f1:-0.50}"
+
+    read -rp \
+        "Minimum mean IoU [${min_iou}]: " \
+        min_iou
+    min_iou="${min_iou:-0.50}"
+
+    read -rp \
+        "Minimum label accuracy [${min_label_accuracy}]: " \
+        min_label_accuracy
+    min_label_accuracy="${min_label_accuracy:-0.50}"
+
+    local args=(
+        --config "${config}"
+        --output "${output}"
+        --iou-threshold "${iou_threshold}"
+        --min-f1 "${min_f1}"
+        --min-iou "${min_iou}"
+        --min-label-accuracy "${min_label_accuracy}"
+    )
+
+    if [[ "${mode}" == "1" ]]; then
+        args+=(
+            --image "${image}"
+            --ground-truth "${ground_truth}"
+        )
+    else
+        args+=(
+            --dataset "${dataset}"
+        )
+    fi
+
+    if [[ -n "${expected}" ]]; then
+        args+=(
+            --expected "${expected}"
+        )
+    fi
+
+    echo
+    echo "============================================"
+    echo "Validation configuration"
+    echo "============================================"
+    echo "Config:              ${config}"
+
+    if [[ "${mode}" == "1" ]]; then
+        echo "Image:               ${image}"
+        echo "Ground truth:        ${ground_truth}"
+    else
+        echo "Dataset:             ${dataset}"
+    fi
+
+    if [[ -n "${expected}" ]]; then
+        echo "Expected OCR:        ${expected}"
+    else
+        echo "Expected OCR:        automatic/default"
+    fi
+
+    echo "Output:              ${output}"
+    echo "IoU threshold:       ${iou_threshold}"
+    echo "Minimum F1:          ${min_f1}"
+    echo "Minimum mean IoU:    ${min_iou}"
+    echo "Minimum label acc.:  ${min_label_accuracy}"
+    echo "============================================"
+    echo
+
+    require_file "${INFERENCE_VENV}/bin/python"
+    require_file "${ROOT_DIR}/scripts/10_validate_layout.py"
+
+    "${INFERENCE_VENV}/bin/python" \
+        "${ROOT_DIR}/scripts/10_validate_layout.py" \
+        "${args[@]}"
+}
 
 # ============================================================
 # Inference
