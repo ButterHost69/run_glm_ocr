@@ -30,9 +30,23 @@ Usage:
   ./setup.sh show-config
 
 Examples:
+  ./setup.sh inference
+
+  ./setup.sh inference \
+    --config /content/run_glm_ocr/v2/our_glm.yaml \
+    --image /content/glm_finetune/datasets/validation/images/example.png
+
+  ./setup.sh validate \
+    --config /content/run_glm_ocr/v2/our_glm.yaml \
+    --dataset /content/glm_finetune/datasets/validation/training
+
   ./setup.sh convert
-  ./setup.sh convert --dataset /content/glm_finetune/datasets/validation
-  ./setup.sh train --dataset /path/to/dataset --output /path/to/output
+
+  ./setup.sh train \
+    --dataset /content/glm_finetune/datasets/validation/training \
+    --output /content/glm_finetune/models/pplayoutv3_2 \
+    --num-classes 25 \
+    --device gpu:0
 EOF
 }
 
@@ -45,6 +59,10 @@ run_script() {
     "${ROOT_DIR}/scripts/${script}" "$@"
 }
 
+
+# ============================================================
+# Installation
+# ============================================================
 
 install_inference() {
     run_script 01-system.sh
@@ -62,48 +80,62 @@ install_training() {
 }
 
 
-run_convert_cli() {
-    local default_dataset="/content/glm_finetune/datasets/validation"
-    local default_output="/content/glm_finetune/datasets/validation/validation_coco"
-    local default_val_ratio="0.1"
-    local default_seed="42"
+# ============================================================
+# Inference
+# ============================================================
+
+run_inference_cli() {
+    # Explicit CLI arguments:
+    #
+    #   ./setup.sh inference --config ... --image ...
+    #
+    # pass straight through without prompting.
+    if (( $# > 0 )); then
+        require_file "${ROOT_DIR}/scripts/09_run_glm.py"
+        run_inference \
+            "${ROOT_DIR}/scripts/09_run_glm.py" \
+            "$@"
+        return
+    fi
+
+    local default_config="${ROOT_DIR}/our_glm.yaml"
+    local default_image="${ROOT_DIR}/page1-test1/images/79e111f2-image_1.png"
 
     echo
     echo "============================================"
-    echo "        Convert Label Studio Dataset"
+    echo "              GLM-OCR Inference"
     echo "============================================"
     echo
 
-    read -rp "Dataset directory [${default_dataset}]: " dataset
-    dataset="${dataset:-${default_dataset}}"
+    read -rp \
+        "Config path [${default_config}]: " \
+        config
 
-    read -rp "Output directory [${default_output}]: " output
-    output="${output:-${default_output}}"
+    config="${config:-${default_config}}"
 
-    read -rp "Validation ratio [${default_val_ratio}]: " val_ratio
-    val_ratio="${val_ratio:-${default_val_ratio}}"
+    read -rp \
+        "Image path [${default_image}]: " \
+        image
 
-    read -rp "Random seed [${default_seed}]: " seed
-    seed="${seed:-${default_seed}}"
+    image="${image:-${default_image}}"
 
-    read -rp "Smoke test? [y/N]: " smoke_test
+    echo
+    echo "Config: ${config}"
+    echo "Image:  ${image}"
+    echo
 
-    local args=(
-        --dataset "${dataset}"
-        --output "${output}"
-        --val-ratio "${val_ratio}"
-        --seed "${seed}"
-    )
+    require_file "${ROOT_DIR}/scripts/09_run_glm.py"
 
-    case "${smoke_test,,}" in
-        y|yes)
-            args+=(--smoke-test)
-            ;;
-    esac
-
-    run_script 11_convert_dataset.py "${args[@]}"
+    run_inference \
+        "${ROOT_DIR}/scripts/09_run_glm.py" \
+        --config "${config}" \
+        --image "${image}"
 }
 
+
+# ============================================================
+# Menus
+# ============================================================
 
 run_inference_menu() {
     while true; do
@@ -126,29 +158,36 @@ run_inference_menu() {
                 install_inference
                 read -rp "Press Enter..." _
                 ;;
+
             2)
                 run_script 04-config.sh
                 read -rp "Press Enter..." _
                 ;;
+
             3)
                 run_script 07-vllm.sh
                 read -rp "Press Enter..." _
                 ;;
+
             4)
                 run_inference_cli
                 read -rp "Press Enter..." _
                 ;;
+
             5)
                 run_validation_cli
                 read -rp "Press Enter..." _
                 ;;
+
             6)
                 run_script 05-inference-sanity.sh
                 read -rp "Press Enter..." _
                 ;;
+
             b|B)
                 return
                 ;;
+
             *)
                 echo "Invalid selection"
                 sleep 1
@@ -177,21 +216,26 @@ run_training_menu() {
                 install_training
                 read -rp "Press Enter..." _
                 ;;
+
             2)
                 run_convert_cli
                 read -rp "Press Enter..." _
                 ;;
+
             3)
                 run_script 12-train.sh
                 read -rp "Press Enter..." _
                 ;;
+
             4)
                 run_script 06-training-sanity.sh
                 read -rp "Press Enter..." _
                 ;;
+
             b|B)
                 return
                 ;;
+
             *)
                 echo "Invalid selection"
                 sleep 1
@@ -219,18 +263,22 @@ run_other_menu() {
                 run_script 01-system.sh
                 read -rp "Press Enter..." _
                 ;;
+
             2)
                 show_config
                 read -rp "Press Enter..." _
                 ;;
+
             3)
                 install_inference
                 install_training
                 read -rp "Press Enter..." _
                 ;;
+
             b|B)
                 return
                 ;;
+
             *)
                 echo "Invalid selection"
                 sleep 1
@@ -268,15 +316,19 @@ tui() {
             1)
                 run_inference_menu
                 ;;
+
             2)
                 run_training_menu
                 ;;
+
             3)
                 run_other_menu
                 ;;
+
             q|Q)
                 exit 0
                 ;;
+
             *)
                 echo "Invalid selection"
                 sleep 1
@@ -285,6 +337,10 @@ tui() {
     done
 }
 
+
+# ============================================================
+# Command dispatch
+# ============================================================
 
 cmd="${1:-tui}"
 shift || true
