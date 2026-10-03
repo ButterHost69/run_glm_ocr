@@ -1,11 +1,164 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ============================================================
+# GLM-OCR / PaddleX master setup
+#
+# Interactive:
+#   ./setup.sh
+#
+# Direct:
+#   ./setup.sh inference ...
+#   ./setup.sh validate ...
+#   ./setup.sh convert ...
+#   ./setup.sh train ...
+#   ./setup.sh vllm
+#
+# All project-relative defaults are derived from ROOT_DIR.
+# ============================================================
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck disable=SC1091
 source "${ROOT_DIR}/lib/common.sh"
 
-export ROOT_DIR INFERENCE_VENV TRAINING_VENV PADDLEX_ROOT
+export ROOT_DIR
+export INFERENCE_VENV
+export TRAINING_VENV
+export PADDLEX_ROOT
 
+
+# ============================================================
+# Helpers
+# ============================================================
+
+pause() {
+    echo
+    read -rp "Press Enter to continue..." _
+}
+
+prompt_default() {
+    local __resultvar="$1"
+    local prompt="$2"
+    local default="$3"
+    local value
+
+    if [[ -n "${default}" ]]; then
+        read -rp "${prompt} [${default}]: " value
+        value="${value:-${default}}"
+    else
+        read -rp "${prompt}: " value
+    fi
+
+    printf -v "${__resultvar}" '%s' "${value}"
+}
+
+prompt_required() {
+    local __resultvar="$1"
+    local prompt="$2"
+    local value
+
+    while true; do
+        read -rp "${prompt}: " value
+
+        if [[ -n "${value}" ]]; then
+            printf -v "${__resultvar}" '%s' "${value}"
+            return
+        fi
+
+        echo "Value is required."
+    done
+}
+
+prompt_existing_file() {
+    local __resultvar="$1"
+    local prompt="$2"
+    local default="$3"
+
+    local value
+
+    while true; do
+        if [[ -n "${default}" ]]; then
+            read -rp "${prompt} [${default}]: " value
+            value="${value:-${default}}"
+        else
+            read -rp "${prompt}: " value
+        fi
+
+        if [[ -f "${value}" ]]; then
+            printf -v "${__resultvar}" '%s' "${value}"
+            return
+        fi
+
+        echo "File does not exist: ${value}"
+    done
+}
+
+prompt_existing_dir() {
+    local __resultvar="$1"
+    local prompt="$2"
+    local default="$3"
+
+    local value
+
+    while true; do
+        if [[ -n "${default}" ]]; then
+            read -rp "${prompt} [${default}]: " value
+            value="${value:-${default}}"
+        else
+            read -rp "${prompt}: " value
+        fi
+
+        if [[ -d "${value}" ]]; then
+            printf -v "${__resultvar}" '%s' "${value}"
+            return
+        fi
+
+        echo "Directory does not exist: ${value}"
+    done
+}
+
+prompt_yes_no() {
+    local __resultvar="$1"
+    local prompt="$2"
+    local default="$3"
+
+    local value
+
+    while true; do
+        read -rp "${prompt} [${default}]: " value
+        value="${value:-${default}}"
+
+        case "${value,,}" in
+            y|yes)
+                printf -v "${__resultvar}" '%s' "yes"
+                return
+                ;;
+            n|no)
+                printf -v "${__resultvar}" '%s' "no"
+                return
+                ;;
+            *)
+                echo "Please enter y or n."
+                ;;
+        esac
+    done
+}
+
+show_header() {
+    local title="$1"
+
+    echo
+    echo "============================================"
+    printf "             %s\n" "${title}"
+    echo "============================================"
+    echo
+}
+
+
+# ============================================================
+# Usage
+# ============================================================
 
 usage() {
     cat <<EOF
@@ -29,34 +182,59 @@ Usage:
   ./setup.sh system
   ./setup.sh show-config
 
+Interactive behavior:
+  Commands without arguments prompt for their parameters.
+
 Examples:
+
+  ./setup.sh
+
   ./setup.sh inference
 
-  ./setup.sh inference \
-    --config /content/run_glm_ocr/v2/our_glm.yaml \
-    --image /content/glm_finetune/datasets/validation/images/example.png
+  ./setup.sh inference \\
+    --config /path/to/our_glm.yaml \\
+    --image /path/to/image.png
 
-  ./setup.sh validate \
-    --config /content/run_glm_ocr/v2/our_glm.yaml \
-    --dataset /content/glm_finetune/datasets/validation/training
+  ./setup.sh validate
+
+  ./setup.sh validate \\
+    --config /path/to/our_glm.yaml \\
+    --dataset /path/to/paddlex/dataset
 
   ./setup.sh convert
 
-  ./setup.sh train \
-    --dataset /content/glm_finetune/datasets/validation/training \
-    --output /content/glm_finetune/models/pplayoutv3_2 \
-    --num-classes 25 \
+  ./setup.sh convert \\
+    --input /path/to/result.json \\
+    --output /path/to/output
+
+  ./setup.sh train
+
+  ./setup.sh train \\
+    --dataset /path/to/training \\
+    --output /path/to/model \\
+    --num-classes 25 \\
     --device gpu:0
+
+  ./setup.sh vllm
 EOF
 }
 
+
+# ============================================================
+# Generic script runner
+# ============================================================
 
 run_script() {
     local script="$1"
     shift
 
-    chmod +x "${ROOT_DIR}/scripts/${script}"
-    "${ROOT_DIR}/scripts/${script}" "$@"
+    local path="${ROOT_DIR}/scripts/${script}"
+
+    require_file "${path}"
+
+    chmod +x "${path}"
+
+    "${path}" "$@"
 }
 
 
@@ -72,18 +250,25 @@ install_inference() {
     run_script 05-inference-sanity.sh
 }
 
-
 install_training() {
     run_script 01-system.sh
     run_script 03-training.sh
     run_script 06-training-sanity.sh
 }
 
+
+# ============================================================
+# Validation
+# ============================================================
+
 run_validation_cli() {
-    # Preserve direct CLI usage:
+
+    # --------------------------------------------------------
+    # Direct CLI mode
     #
-    #   ./setup.sh validate --image ... --ground-truth ...
-    #
+    # If arguments are supplied, pass them straight through.
+    # --------------------------------------------------------
+
     if (( $# > 0 )); then
         require_file "${INFERENCE_VENV}/bin/python"
         require_file "${ROOT_DIR}/scripts/10_validate_layout.py"
@@ -91,8 +276,14 @@ run_validation_cli() {
         "${INFERENCE_VENV}/bin/python" \
             "${ROOT_DIR}/scripts/10_validate_layout.py" \
             "$@"
+
         return
     fi
+
+
+    # --------------------------------------------------------
+    # Interactive mode
+    # --------------------------------------------------------
 
     local default_config="${ROOT_DIR}/our_glm.yaml"
     local default_output="${ROOT_DIR}/output/glmocr_validation"
@@ -109,18 +300,15 @@ run_validation_cli() {
     local min_iou="0.50"
     local min_label_accuracy="0.50"
 
-    echo
-    echo "============================================"
-    echo "             Validate Layout"
-    echo "============================================"
-    echo
 
-    read -rp \
-        "Config path [${default_config}]: " \
-        config
-    config="${config:-${default_config}}"
+    show_header "Validate Layout"
 
-    echo
+    prompt_default \
+        config \
+        "Config path" \
+        "${default_config}"
+
+
     echo "Validation mode:"
     echo "1) Single image"
     echo "2) PaddleX dataset"
@@ -140,62 +328,60 @@ run_validation_cli() {
         esac
     done
 
+
     if [[ "${mode}" == "1" ]]; then
-        echo
 
-        read -rp "Image path: " image
-        if [[ -z "${image}" ]]; then
-            echo "[ERROR] Image path is required."
-            return 1
-        fi
+        prompt_required \
+            image \
+            "Image path"
 
-        read -rp "Ground-truth annotation file: " ground_truth
-        if [[ -z "${ground_truth}" ]]; then
-            echo "[ERROR] Ground-truth annotation file is required."
-            return 1
-        fi
+        prompt_required \
+            ground_truth \
+            "Ground-truth annotation file"
+
     else
-        echo
 
-        read -rp "PaddleX dataset directory: " dataset
-        if [[ -z "${dataset}" ]]; then
-            echo "[ERROR] Dataset directory is required."
-            return 1
-        fi
+        prompt_required \
+            dataset \
+            "PaddleX dataset directory"
+
     fi
 
-    echo
-
-    read -rp \
-        "Expected OCR JSON [none]: " \
-        expected
-
-    read -rp \
-        "Output directory [${default_output}]: " \
-        output
-    output="${output:-${default_output}}"
 
     echo
 
-    read -rp \
-        "IoU threshold [${iou_threshold}]: " \
-        iou_threshold
-    iou_threshold="${iou_threshold:-0.50}"
+    prompt_default \
+        expected \
+        "Expected OCR JSON" \
+        ""
 
-    read -rp \
-        "Minimum F1 [${min_f1}]: " \
-        min_f1
-    min_f1="${min_f1:-0.50}"
 
-    read -rp \
-        "Minimum mean IoU [${min_iou}]: " \
-        min_iou
-    min_iou="${min_iou:-0.50}"
+    prompt_default \
+        output \
+        "Output directory" \
+        "${default_output}"
 
-    read -rp \
-        "Minimum label accuracy [${min_label_accuracy}]: " \
-        min_label_accuracy
-    min_label_accuracy="${min_label_accuracy:-0.50}"
+
+    prompt_default \
+        iou_threshold \
+        "IoU threshold" \
+        "${iou_threshold}"
+
+    prompt_default \
+        min_f1 \
+        "Minimum F1" \
+        "${min_f1}"
+
+    prompt_default \
+        min_iou \
+        "Minimum mean IoU" \
+        "${min_iou}"
+
+    prompt_default \
+        min_label_accuracy \
+        "Minimum label accuracy" \
+        "${min_label_accuracy}"
+
 
     local args=(
         --config "${config}"
@@ -206,22 +392,29 @@ run_validation_cli() {
         --min-label-accuracy "${min_label_accuracy}"
     )
 
+
     if [[ "${mode}" == "1" ]]; then
+
         args+=(
             --image "${image}"
             --ground-truth "${ground_truth}"
         )
+
     else
+
         args+=(
             --dataset "${dataset}"
         )
+
     fi
+
 
     if [[ -n "${expected}" ]]; then
         args+=(
             --expected "${expected}"
         )
     fi
+
 
     echo
     echo "============================================"
@@ -250,6 +443,7 @@ run_validation_cli() {
     echo "============================================"
     echo
 
+
     require_file "${INFERENCE_VENV}/bin/python"
     require_file "${ROOT_DIR}/scripts/10_validate_layout.py"
 
@@ -258,49 +452,53 @@ run_validation_cli() {
         "${args[@]}"
 }
 
+
 # ============================================================
 # Inference
 # ============================================================
 
 run_inference_cli() {
-    # Explicit CLI arguments:
-    #
-    #   ./setup.sh inference --config ... --image ...
-    #
-    # pass straight through without prompting.
+
+    # Direct CLI mode
     if (( $# > 0 )); then
+
         require_file "${ROOT_DIR}/scripts/09_run_glm.py"
+
         run_inference \
             "${ROOT_DIR}/scripts/09_run_glm.py" \
             "$@"
+
         return
     fi
+
+
+    # Interactive mode
 
     local default_config="${ROOT_DIR}/our_glm.yaml"
     local default_image="${ROOT_DIR}/page1-test1/images/79e111f2-image_1.png"
 
-    echo
-    echo "============================================"
-    echo "              GLM-OCR Inference"
-    echo "============================================"
-    echo
+    local config=""
+    local image=""
 
-    read -rp \
-        "Config path [${default_config}]: " \
-        config
 
-    config="${config:-${default_config}}"
+    show_header "GLM-OCR Inference"
 
-    read -rp \
-        "Image path [${default_image}]: " \
-        image
+    prompt_default \
+        config \
+        "Config path" \
+        "${default_config}"
 
-    image="${image:-${default_image}}"
+    prompt_default \
+        image \
+        "Image path" \
+        "${default_image}"
+
 
     echo
     echo "Config: ${config}"
     echo "Image:  ${image}"
     echo
+
 
     require_file "${ROOT_DIR}/scripts/09_run_glm.py"
 
@@ -312,17 +510,172 @@ run_inference_cli() {
 
 
 # ============================================================
-# Menus
+# Dataset conversion
+# ============================================================
+
+run_convert_cli() {
+
+    # --------------------------------------------------------
+    # Direct CLI mode
+    # --------------------------------------------------------
+
+    if (( $# > 0 )); then
+
+        require_file "${ROOT_DIR}/scripts/11_convert_dataset.py"
+
+        "${TRAINING_VENV}/bin/python" \
+            "${ROOT_DIR}/scripts/11_convert_dataset.py" \
+            "$@"
+
+        return
+    fi
+
+
+    # --------------------------------------------------------
+    # Interactive mode
+    # --------------------------------------------------------
+
+    local default_input="${ROOT_DIR}/result.json"
+    local default_output="${ROOT_DIR}/output/paddle_dataset"
+
+    local input=""
+    local dataset=""
+    local output=""
+    local format=""
+    local args=()
+
+
+    show_header "Label Studio Dataset Conversion"
+
+    echo "Input type:"
+    echo "1) Label Studio JSON"
+    echo "2) Existing dataset directory"
+    echo
+
+
+    while true; do
+
+        read -rp "Select [1]: " format
+        format="${format:-1}"
+
+        case "${format}" in
+            1|2)
+                break
+                ;;
+            *)
+                echo "Invalid selection. Enter 1 or 2."
+                ;;
+        esac
+
+    done
+
+
+    echo
+
+    if [[ "${format}" == "1" ]]; then
+
+        prompt_existing_file \
+            input \
+            "Label Studio JSON" \
+            "${default_input}"
+
+        args+=(
+            --input "${input}"
+        )
+
+    else
+
+        prompt_existing_dir \
+            dataset \
+            "Dataset directory" \
+            "${ROOT_DIR}"
+
+        args+=(
+            --dataset "${dataset}"
+        )
+
+    fi
+
+
+    prompt_default \
+        output \
+        "Output directory" \
+        "${default_output}"
+
+    args+=(
+        --output "${output}"
+    )
+
+
+    echo
+    echo "============================================"
+    echo "Conversion configuration"
+    echo "============================================"
+
+    if [[ "${format}" == "1" ]]; then
+        echo "Input:       ${input}"
+    else
+        echo "Dataset:     ${dataset}"
+    fi
+
+    echo "Output:      ${output}"
+    echo "============================================"
+    echo
+
+
+    prompt_yes_no \
+        confirm \
+        "Run conversion?" \
+        "Y"
+
+
+    if [[ "${confirm}" != "yes" ]]; then
+        echo "Conversion cancelled."
+        return
+    fi
+
+
+    require_file "${TRAINING_VENV}/bin/python"
+    require_file "${ROOT_DIR}/scripts/11_convert_dataset.py"
+
+    "${TRAINING_VENV}/bin/python" \
+        "${ROOT_DIR}/scripts/11_convert_dataset.py" \
+        "${args[@]}"
+}
+
+
+# ============================================================
+# Training
+# ============================================================
+
+run_train_cli() {
+    # Direct arguments: pass them through.
+    if (( $# > 0 )); then
+        require_file "${ROOT_DIR}/scripts/12-train.sh"
+        run_script 12-train.sh "$@"
+        return
+    fi
+
+    # No arguments: let the training script handle its own prompts.
+    require_file "${ROOT_DIR}/scripts/12-train.sh"
+    run_script 12-train.sh
+}
+
+
+# ============================================================
+# Inference menu
 # ============================================================
 
 run_inference_menu() {
+
     while true; do
+
         clear 2>/dev/null || true
 
         echo "================ INFERENCE ================"
         echo "1) Install / setup inference"
         echo "2) Configure GLM-OCR"
-        echo "3) Generate vLLM launcher"
+        echo "3) Start vLLM"
         echo "4) Inference"
         echo "5) Validate layout"
         echo "6) Inference sanity"
@@ -331,35 +684,36 @@ run_inference_menu() {
 
         read -rp "Select: " choice
 
+
         case "${choice}" in
+
             1)
                 install_inference
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             2)
                 run_script 04-config.sh
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             3)
                 run_script 07-vllm.sh
-                read -rp "Press Enter..." _
                 ;;
 
             4)
                 run_inference_cli
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             5)
                 run_validation_cli
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             6)
                 run_script 05-inference-sanity.sh
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             b|B)
@@ -367,16 +721,24 @@ run_inference_menu() {
                 ;;
 
             *)
-                echo "Invalid selection"
+                echo "Invalid selection."
                 sleep 1
                 ;;
+
         esac
+
     done
 }
 
 
+# ============================================================
+# Training menu
+# ============================================================
+
 run_training_menu() {
+
     while true; do
+
         clear 2>/dev/null || true
 
         echo "================= TRAINING ================="
@@ -389,25 +751,27 @@ run_training_menu() {
 
         read -rp "Select: " choice
 
+
         case "${choice}" in
+
             1)
                 install_training
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             2)
                 run_convert_cli
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             3)
-                run_script 12-train.sh
-                read -rp "Press Enter..." _
+                run_train_cli
+                pause
                 ;;
 
             4)
                 run_script 06-training-sanity.sh
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             b|B)
@@ -415,16 +779,24 @@ run_training_menu() {
                 ;;
 
             *)
-                echo "Invalid selection"
+                echo "Invalid selection."
                 sleep 1
                 ;;
+
         esac
+
     done
 }
 
 
+# ============================================================
+# Other menu
+# ============================================================
+
 run_other_menu() {
+
     while true; do
+
         clear 2>/dev/null || true
 
         echo "=================== OTHER =================="
@@ -436,21 +808,23 @@ run_other_menu() {
 
         read -rp "Select: " choice
 
+
         case "${choice}" in
+
             1)
                 run_script 01-system.sh
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             2)
                 show_config
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             3)
                 install_inference
                 install_training
-                read -rp "Press Enter..." _
+                pause
                 ;;
 
             b|B)
@@ -458,25 +832,39 @@ run_other_menu() {
                 ;;
 
             *)
-                echo "Invalid selection"
+                echo "Invalid selection."
                 sleep 1
                 ;;
+
         esac
+
     done
 }
 
 
+# ============================================================
+# Show generated configuration
+# ============================================================
+
 show_config() {
+
     if [[ -f "${ROOT_DIR}/our_glm.yaml" ]]; then
         cat "${ROOT_DIR}/our_glm.yaml"
     else
-        echo "Config not found: ${ROOT_DIR}/our_glm.yaml"
+        echo "Config not found:"
+        echo "  ${ROOT_DIR}/our_glm.yaml"
     fi
 }
 
 
+# ============================================================
+# Main TUI
+# ============================================================
+
 tui() {
+
     while true; do
+
         clear 2>/dev/null || true
 
         echo "============================================"
@@ -490,7 +878,9 @@ tui() {
 
         read -rp "Select: " choice
 
+
         case "${choice}" in
+
             1)
                 run_inference_menu
                 ;;
@@ -508,10 +898,12 @@ tui() {
                 ;;
 
             *)
-                echo "Invalid selection"
+                echo "Invalid selection."
                 sleep 1
                 ;;
+
         esac
+
     done
 }
 
@@ -523,7 +915,9 @@ tui() {
 cmd="${1:-tui}"
 shift || true
 
+
 case "${cmd}" in
+
     tui)
         tui
         ;;
@@ -553,7 +947,7 @@ case "${cmd}" in
         ;;
 
     train)
-        run_script 12-train.sh "$@"
+        run_train_cli "$@"
         ;;
 
     vllm)
@@ -582,7 +976,9 @@ case "${cmd}" in
 
     *)
         echo "Unknown command: ${cmd}" >&2
+        echo
         usage >&2
         exit 2
         ;;
+
 esac
